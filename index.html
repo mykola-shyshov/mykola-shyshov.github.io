@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Лабіринт з зомбі</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #F0F0F0;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+
+        .game-container {
+            position: relative;
+            margin: 20px auto;
+        }
+
+        #gameCanvas {
+            background-color: #FFFFFF;
+            border: 2px solid #808080;
+        }
+
+        .game-info {
+            display: flex;
+            justify-content: space-between;
+            width: 450px;
+            margin-bottom: 10px;
+        }
+
+        .lives {
+            display: flex;
+            gap: 5px;
+        }
+
+        .life {
+            width: 20px;
+            height: 20px;
+            background-color: #FF0000;
+            border-radius: 50%;
+        }
+
+        .timer {
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        .new-game-btn {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .new-game-btn:hover {
+            background-color: #45a049;
+        }
+
+        .message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-info">
+            <div class="lives">
+                <div class="life"></div>
+                <div class="life"></div>
+                <div class="life"></div>
+            </div>
+            <div class="timer">00:00</div>
+        </div>
+        <canvas id="gameCanvas" width="450" height="450"></canvas>
+        <button class="new-game-btn">Нова гра</button>
+        <div class="message"></div>
+    </div>
+
+    <script>
+        // Базові класи для ігрових об'єктів
+        class GameObject {
+            constructor(x, y, width, height, color) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = color;
+            }
+
+            draw(ctx) {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+
+        // Додаємо нові константи для лабіринту
+        const WALL = 1;
+        const PATH = 0;
+        const START = 2;
+        const EXIT = 3;
+
+        // Клас для управління лабіринтом
+        class Maze {
+            constructor(size) {
+                this.size = size;
+                this.grid = [];
+                this.start = { x: 1, y: 1 };
+                this.exit = { x: size - 2, y: size - 2 };
+                this.generateMaze();
+            }
+
+            generateMaze() {
+                // Ініціалізуємо сітку стінами
+                for (let y = 0; y < this.size; y++) {
+                    this.grid[y] = [];
+                    for (let x = 0; x < this.size; x++) {
+                        this.grid[y][x] = WALL;
+                    }
+                }
+
+                // Створюємо шлях від початку до виходу
+                this.createPath(this.start.x, this.start.y);
+                
+                // Встановлюємо початок і вихід
+                this.grid[this.start.y][this.start.x] = START;
+                this.grid[this.exit.y][this.exit.x] = EXIT;
+            }
+
+            createPath(x, y) {
+                this.grid[y][x] = PATH;
+
+                // Напрямки: вгору, вправо, вниз, вліво
+                const directions = [
+                    [0, -2], [2, 0], [0, 2], [-2, 0]
+                ];
+                
+                // Перемішуємо напрямки для випадковості
+                directions.sort(() => Math.random() - 0.5);
+
+                for (let [dx, dy] of directions) {
+                    let newX = x + dx;
+                    let newY = y + dy;
+
+                    if (newX > 0 && newX < this.size - 1 && newY > 0 && newY < this.size - 1 
+                        && this.grid[newY][newX] === WALL) {
+                        // Прорубуємо шлях
+                        this.grid[y + dy/2][x + dx/2] = PATH;
+                        this.createPath(newX, newY);
+                    }
+                }
+            }
+
+            draw(ctx) {
+                for (let y = 0; y < this.size; y++) {
+                    for (let x = 0; x < this.size; x++) {
+                        const cell = this.grid[y][x];
+                        ctx.fillStyle = this.getCellColor(cell);
+                        ctx.fillRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                    }
+                }
+            }
+
+            getCellColor(cell) {
+                switch(cell) {
+                    case WALL: return '#808080';
+                    case PATH: return '#FFFFFF';
+                    case START: return '#FF0000';
+                    case EXIT: return '#0000FF';
+                    default: return '#FFFFFF';
+                }
+            }
+
+            isValidMove(x, y) {
+                return x >= 0 && x < this.size && y >= 0 && y < this.size 
+                    && this.grid[y][x] !== WALL;
+            }
+
+            isExit(x, y) {
+                return x === this.exit.x && y === this.exit.y;
+            }
+        }
+
+        // Оновлюємо клас Player
+        class Player extends GameObject {
+            constructor(x, y) {
+                super(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE, '#FF0000');
+                this.gridX = x;
+                this.gridY = y;
+            }
+
+            moveTo(x, y, maze) {
+                // Перевіряємо чи нова позиція в межах лабіринту
+                if (x < 0 || x >= maze.size || y < 0 || y >= maze.size) {
+                    return false;
+                }
+
+                // Перевіряємо чи можна рухатися по горизонталі
+                if (x !== this.gridX) {
+                    const step = Math.sign(x - this.gridX);
+                    for (let i = this.gridX + step; i !== x + step; i += step) {
+                        if (!maze.isValidMove(i, this.gridY)) {
+                            return false;
+                        }
+                    }
+                }
+
+                // Перевіряємо чи можна рухатися по вертикалі
+                if (y !== this.gridY) {
+                    const step = Math.sign(y - this.gridY);
+                    for (let i = this.gridY + step; i !== y + step; i += step) {
+                        if (!maze.isValidMove(x, i)) {
+                            return false;
+                        }
+                    }
+                }
+
+                // Якщо всі перевірки пройшли, оновлюємо позицію
+                this.gridX = x;
+                this.gridY = y;
+                this.x = x * CELL_SIZE;
+                this.y = y * CELL_SIZE;
+                return true;
+            }
+        }
+
+        // Клас для зомбі
+        class Zombie extends GameObject {
+            constructor(x, y) {
+                super(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE, '#00FF00');
+                this.gridX = x;
+                this.gridY = y;
+                this.speed = 1000; // Інтервал руху в мілісекундах
+            }
+
+            moveTo(x, y, maze) {
+                // Перевіряємо чи нова позиція в межах лабіринту
+                if (x < 0 || x >= maze.size || y < 0 || y >= maze.size) {
+                    return false;
+                }
+
+                // Перевіряємо чи можна рухатися по горизонталі
+                if (x !== this.gridX) {
+                    const step = Math.sign(x - this.gridX);
+                    for (let i = this.gridX + step; i !== x + step; i += step) {
+                        if (!maze.isValidMove(i, this.gridY)) {
+                            return false;
+                        }
+                    }
+                }
+
+                // Перевіряємо чи можна рухатися по вертикалі
+                if (y !== this.gridY) {
+                    const step = Math.sign(y - this.gridY);
+                    for (let i = this.gridY + step; i !== y + step; i += step) {
+                        if (!maze.isValidMove(x, i)) {
+                            return false;
+                        }
+                    }
+                }
+
+                // Якщо всі перевірки пройшли, оновлюємо позицію
+                this.gridX = x;
+                this.gridY = y;
+                this.x = x * CELL_SIZE;
+                this.y = y * CELL_SIZE;
+                return true;
+            }
+
+            findPathToPlayer(player, maze) {
+                // Простий алгоритм переслідування
+                const dx = player.gridX - this.gridX;
+                const dy = player.gridY - this.gridY;
+                
+                // Список можливих ходів
+                const moves = [];
+                
+                // Перевіряємо можливість руху по горизонталі
+                if (dx !== 0) {
+                    const newX = this.gridX + Math.sign(dx);
+                    if (maze.isValidMove(newX, this.gridY)) {
+                        moves.push({x: newX, y: this.gridY});
+                    }
+                }
+
+                // Перевіряємо можливість руху по вертикалі
+                if (dy !== 0) {
+                    const newY = this.gridY + Math.sign(dy);
+                    if (maze.isValidMove(this.gridX, newY)) {
+                        moves.push({x: this.gridX, y: newY});
+                    }
+                }
+
+                // Якщо є можливі ходи, вибираємо випадковий
+                if (moves.length > 0) {
+                    const move = moves[Math.floor(Math.random() * moves.length)];
+                    return this.moveTo(move.x, move.y, maze);
+                }
+                
+                return false;
+            }
+        }
+
+        // Додаємо глобальні змінні для ігрового стану
+        let lives = 3;
+        let gameOver = false;
+        let gameWon = false;
+        let gameInterval;
+
+        // Додаємо глобальні змінні для таймера та стін
+        let gameTime = 0;
+        let timerInterval;
+        let wallInterval;
+        let newWallsCount = 0;
+        const MAX_NEW_WALLS = 10;
+        const WALL_LIFETIME = 5000;
+        let walls = new Map();
+        let zombies = []; // Масив для зберігання зомбі
+        const ZOMBIE_COUNT = 3; // Кількість зомбі
+
+        // Функція для створення візуального ефекту
+        function createEffect(x, y, color) {
+            const effect = document.createElement('div');
+            effect.style.position = 'absolute';
+            effect.style.left = (x * CELL_SIZE) + 'px';
+            effect.style.top = (y * CELL_SIZE) + 'px';
+            effect.style.width = CELL_SIZE + 'px';
+            effect.style.height = CELL_SIZE + 'px';
+            effect.style.backgroundColor = color;
+            effect.style.opacity = '0.5';
+            effect.style.transition = 'all 0.3s ease-out';
+            effect.style.pointerEvents = 'none';
+            document.querySelector('.game-container').appendChild(effect);
+
+            // Анімація зникнення
+            setTimeout(() => {
+                effect.style.opacity = '0';
+                effect.style.transform = 'scale(1.5)';
+                setTimeout(() => effect.remove(), 300);
+            }, 100);
+        }
+
+        // Функція для створення зомбі
+        function createZombies() {
+            zombies = [];
+            for (let i = 0; i < ZOMBIE_COUNT; i++) {
+                let x, y;
+                do {
+                    x = Math.floor(Math.random() * (maze.size - 4)) + 2;
+                    y = Math.floor(Math.random() * (maze.size - 4)) + 2;
+                } while (
+                    maze.grid[y][x] !== PATH ||
+                    (x === player.gridX && y === player.gridY) ||
+                    (x === maze.exit.x && y === maze.exit.y) ||
+                    zombies.some(z => z.gridX === x && z.gridY === y)
+                );
+                
+                zombies.push(new Zombie(x, y));
+            }
+        }
+
+        // Оновлюємо функцію updateGame
+        function updateGame() {
+            if (gameOver || gameWon) return;
+
+            // Перевіряємо колізію з будь-яким зомбі
+            if (zombies.some(z => player.gridX === z.gridX && player.gridY === z.gridY)) {
+                lives--;
+                updateLives();
+                createEffect(player.gridX, player.gridY, '#FF0000');
+                
+                if (lives <= 0) {
+                    endGame(false);
+                } else {
+                    player.moveTo(maze.start.x, maze.start.y, maze);
+                }
+            }
+
+            // Перевіряємо чи гравець досяг виходу
+            if (maze.isExit(player.gridX, player.gridY)) {
+                createEffect(player.gridX, player.gridY, '#00FF00');
+                endGame(true);
+            }
+
+            drawGame();
+        }
+
+        // Функція для оновлення відображення життів
+        function updateLives() {
+            const livesContainer = document.querySelector('.lives');
+            livesContainer.innerHTML = '';
+            for (let i = 0; i < lives; i++) {
+                const life = document.createElement('div');
+                life.className = 'life';
+                livesContainer.appendChild(life);
+            }
+        }
+
+        // Функція для завершення гри
+        function endGame(won) {
+            gameOver = true;
+            gameWon = won;
+            clearInterval(gameInterval);
+            clearInterval(timerInterval);
+            clearInterval(wallInterval);
+            
+            const message = document.querySelector('.message');
+            if (won) {
+                const bestTime = localStorage.getItem('bestTime');
+                const currentTime = gameTime;
+                
+                if (!bestTime || currentTime < parseInt(bestTime)) {
+                    localStorage.setItem('bestTime', currentTime);
+                    message.textContent = `Перемога! Новий рекорд: ${formatTime(currentTime)}`;
+                } else {
+                    message.textContent = `Перемога! Час: ${formatTime(currentTime)}`;
+                }
+            } else {
+                message.textContent = 'Гра закінчена!';
+            }
+            message.style.display = 'block';
+        }
+
+        // Функція для форматування часу
+        function formatTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = seconds % 60;
+            return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+        }
+
+        // Функція для оновлення таймера
+        function updateTimer() {
+            gameTime++;
+            document.querySelector('.timer').textContent = formatTime(gameTime);
+        }
+
+        // Функція для оновлення стану гри
+        function generateNewWall() {
+            if (newWallsCount >= MAX_NEW_WALLS || gameOver || gameWon) return;
+
+            let attempts = 0;
+            const maxAttempts = 50;
+
+            while (attempts < maxAttempts) {
+                const x = Math.floor(Math.random() * (maze.size - 2)) + 1;
+                const y = Math.floor(Math.random() * (maze.size - 2)) + 1;
+
+                if (maze.grid[y][x] === PATH && 
+                    !(x === player.gridX && y === player.gridY) &&
+                    !zombies.some(z => z.gridX === x && z.gridY === y) &&
+                    !(x === maze.exit.x && y === maze.exit.y)) {
+                    
+                    maze.grid[y][x] = WALL;
+                    walls.set(`${x},${y}`, Date.now());
+                    newWallsCount++;
+                    createEffect(x, y, '#404040');
+                    drawGame();
+                    return;
+                }
+                attempts++;
+            }
+        }
+
+        // Функція для перевірки та видалення старих стін
+        function checkWalls() {
+            const currentTime = Date.now();
+            for (const [pos, createTime] of walls.entries()) {
+                if (currentTime - createTime >= WALL_LIFETIME) {
+                    const [x, y] = pos.split(',').map(Number);
+                    if (maze.grid[y][x] === WALL) {
+                        maze.grid[y][x] = PATH;
+                        newWallsCount--;
+                    }
+                    walls.delete(pos);
+                }
+            }
+            drawGame();
+        }
+
+        // Ініціалізація Canvas
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Базові налаштування гри
+        const CELL_SIZE = 30;
+        const GRID_SIZE = 15;
+        const GAME_SIZE = CELL_SIZE * GRID_SIZE;
+
+        // Функція для очищення Canvas
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // Функція для малювання сітки (для відладки)
+        function drawGrid() {
+            ctx.strokeStyle = '#CCCCCC';
+            ctx.lineWidth = 0.5;
+
+            for (let i = 0; i <= GRID_SIZE; i++) {
+                // Вертикальні лінії
+                ctx.beginPath();
+                ctx.moveTo(i * CELL_SIZE, 0);
+                ctx.lineTo(i * CELL_SIZE, GAME_SIZE);
+                ctx.stroke();
+
+                // Горизонтальні лінії
+                ctx.beginPath();
+                ctx.moveTo(0, i * CELL_SIZE);
+                ctx.lineTo(GAME_SIZE, i * CELL_SIZE);
+                ctx.stroke();
+            }
+        }
+
+        // Створюємо глобальні змінні для гри
+        let maze;
+        let player;
+        let zombie;
+
+        // Додаємо обробку перетягування миші
+        let isDragging = false;
+        let lastValidX;
+        let lastValidY;
+
+        // Оновлюємо функцію init
+        function init() {
+            clearCanvas();
+            maze = new Maze(GRID_SIZE);
+            player = new Player(maze.start.x, maze.start.y);
+            createZombies();
+            lives = 3;
+            gameOver = false;
+            gameWon = false;
+            gameTime = 0;
+            newWallsCount = 0;
+            walls.clear();
+            
+            updateLives();
+            document.querySelector('.timer').textContent = '00:00';
+            document.querySelector('.message').style.display = 'none';
+            
+            if (gameInterval) clearInterval(gameInterval);
+            gameInterval = setInterval(() => {
+                zombies.forEach(zombie => zombie.findPathToPlayer(player, maze));
+                updateGame();
+                checkWalls();
+            }, 1000);
+
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(updateTimer, 1000);
+
+            if (wallInterval) clearInterval(wallInterval);
+            wallInterval = setInterval(generateNewWall, 2000);
+
+            drawGame();
+            lastValidX = maze.start.x;
+            lastValidY = maze.start.y;
+        }
+
+        // Функція для малювання всіх елементів гри
+        function drawGame() {
+            clearCanvas();
+            maze.draw(ctx);
+            player.draw(ctx);
+            zombies.forEach(z => z.draw(ctx));
+        }
+
+        // Додаємо обробку подій миші
+        canvas.addEventListener('mousedown', (e) => {
+            if (gameOver) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) / CELL_SIZE);
+            const y = Math.floor((e.clientY - rect.top) / CELL_SIZE);
+            
+            if (x === player.gridX && y === player.gridY) {
+                isDragging = true;
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isDragging || gameOver) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) / CELL_SIZE);
+            const y = Math.floor((e.clientY - rect.top) / CELL_SIZE);
+
+            if (player.moveTo(x, y, maze)) {
+                lastValidX = x;
+                lastValidY = y;
+                drawGame();
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+        });
+
+        // Додаємо обробку кнопки "Нова гра"
+        document.querySelector('.new-game-btn').addEventListener('click', init);
+
+        // Запускаємо гру
+        init();
+    </script>
+</body>
+</html> 
