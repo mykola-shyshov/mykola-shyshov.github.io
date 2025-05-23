@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Пригоди Водопровідника</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #2c3e50;
+            font-family: Arial, sans-serif;
+        }
+
+        #gameCanvas {
+            border: 2px solid #fff;
+            background-color: #34495e;
+            display: none;
+        }
+
+        #gameContainer {
+            position: relative;
+            padding-top: 40px;
+        }
+
+        #gameInfo {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            color: white;
+            font-size: 20px;
+            text-align: center;
+            padding: 10px 0;
+            display: none;
+        }
+
+        #gameOver {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            color: white;
+        }
+
+        #gameOver h2 {
+            color: #e74c3c;
+            margin-bottom: 20px;
+        }
+
+        #gameOver p {
+            font-size: 24px;
+            margin: 10px 0;
+        }
+
+        #gameOver button {
+            margin-top: 20px;
+        }
+
+        #mainMenu {
+            text-align: center;
+            color: white;
+        }
+
+        #mainMenu h1 {
+            font-size: 48px;
+            margin-bottom: 30px;
+            color: #e74c3c;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .menuButton {
+            display: block;
+            width: 200px;
+            margin: 20px auto;
+            padding: 15px 30px;
+            font-size: 20px;
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .menuButton:hover {
+            background-color: #c0392b;
+        }
+
+        #rules {
+            display: none;
+            color: white;
+            text-align: center;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        #rules h2 {
+            color: #e74c3c;
+            margin-bottom: 20px;
+        }
+
+        #rules p {
+            margin: 10px 0;
+            line-height: 1.5;
+        }
+
+        #backButton {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="mainMenu">
+        <h1>Пригоди Водопровідника</h1>
+        <button class="menuButton" id="startButton">Почати гру</button>
+        <button class="menuButton" id="rulesButton">Правила</button>
+    </div>
+
+    <div id="rules">
+        <h2>Правила гри</h2>
+        <p>Керування:</p>
+        <p>← → або A D - рух вліво/вправо</p>
+        <p>↑ або Пробіл - стрибок</p>
+        <p>Збирайте монети та уникайте ворогів!</p>
+        <button class="menuButton" id="backButton">Назад</button>
+    </div>
+
+    <div id="gameContainer">
+        <div id="gameInfo">Час: 30 | Життя: 3 | Монети: 0</div>
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="gameOver">
+            <h2>Час вийшов!</h2>
+            <p>Зібрано монет: <span id="finalCoins">0</span></p>
+            <button class="menuButton" id="restartButton">Грати знову</button>
+        </div>
+    </div>
+
+    <script>
+        // Константи гри
+        const GRAVITY = 0.5;
+        const JUMP_FORCE = -12;
+        const MOVE_SPEED = 5;
+        const FRICTION = 0.8;
+        const WORLD_WIDTH = 3000; // Ширина ігрового світу
+        const WORLD_HEIGHT = 600; // Висота ігрового світу
+        const GAME_TIME = 30; // Час гри в секундах
+
+        // Звукові ефекти
+        const sounds = {
+            jump: new Audio(),
+            coin: new Audio(),
+            damage: new Audio(),
+            gameOver: new Audio(),
+            background: new Audio()
+        };
+
+        // Налаштування звуків
+        sounds.jump.src = 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3'; // Стрибок
+        sounds.coin.src = 'https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3'; // Монета
+        sounds.damage.src = 'https://assets.mixkit.co/active_storage/sfx/270/270-preview.mp3'; // Пошкодження
+        sounds.gameOver.src = 'https://assets.mixkit.co/active_storage/sfx/2658/2658-preview.mp3'; // Game Over
+        sounds.background.src = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'; // Фонова музика
+
+        // Налаштування гучності
+        sounds.jump.volume = 0.3;
+        sounds.coin.volume = 0.4;
+        sounds.damage.volume = 0.5;
+        sounds.gameOver.volume = 0.6;
+        sounds.background.volume = 0.15;
+
+        // Налаштування циклічної фонової музики
+        sounds.background.loop = true;
+
+        // Функція для безпечного відтворення звуків
+        function playSound(sound) {
+            if (isSoundEnabled) {
+                sound.currentTime = 0;
+                sound.play().catch(error => {
+                    console.log('Помилка відтворення звуку:', error);
+                });
+            }
+        }
+
+        // Функція для запуску фонової музики
+        function startBackgroundMusic() {
+            if (isSoundEnabled) {
+                sounds.background.currentTime = 0;
+                // Додаємо обробник події для автоматичного відтворення
+                document.addEventListener('click', function startMusic() {
+                    sounds.background.play().then(() => {
+                        console.log('Фонова музика запущена');
+                    }).catch(error => {
+                        console.log('Помилка відтворення фонової музики:', error);
+                    });
+                    // Видаляємо обробник після першого кліку
+                    document.removeEventListener('click', startMusic);
+                }, { once: true });
+            }
+        }
+
+        // Елементи меню
+        const mainMenu = document.getElementById('mainMenu');
+        const rules = document.getElementById('rules');
+        const gameContainer = document.getElementById('gameContainer');
+        const gameInfo = document.getElementById('gameInfo');
+        const gameOver = document.getElementById('gameOver');
+        const finalCoins = document.getElementById('finalCoins');
+        const restartButton = document.getElementById('restartButton');
+        const canvas = document.getElementById('gameCanvas');
+        const startButton = document.getElementById('startButton');
+        const rulesButton = document.getElementById('rulesButton');
+        const backButton = document.getElementById('backButton');
+
+        // Обробка меню
+        startButton.addEventListener('click', () => {
+            mainMenu.style.display = 'none';
+            rules.style.display = 'none';
+            gameContainer.style.display = 'block';
+            gameInfo.style.display = 'block';
+            canvas.style.display = 'block';
+            startGame();
+        });
+
+        rulesButton.addEventListener('click', () => {
+            mainMenu.style.display = 'none';
+            rules.style.display = 'block';
+        });
+
+        backButton.addEventListener('click', () => {
+            rules.style.display = 'none';
+            mainMenu.style.display = 'block';
+        });
+
+        // Клас камери
+        class Camera {
+            constructor() {
+                this.x = 0;
+                this.y = 0;
+                this.width = canvas.width;
+                this.height = canvas.height;
+            }
+
+            update(player) {
+                // Центрування камери на гравці
+                this.x = player.x - this.width / 2;
+
+                // Обмеження камери межами світу
+                if (this.x < 0) this.x = 0;
+                if (this.x + this.width > WORLD_WIDTH) {
+                    this.x = WORLD_WIDTH - this.width;
+                }
+            }
+
+            // Перетворення світових координат в координати екрану
+            transformX(x) {
+                return x - this.x;
+            }
+
+            transformY(y) {
+                return y - this.y;
+            }
+        }
+
+        // Клас платформи
+        class Platform {
+            constructor(x, y, width, height) {
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = '#27ae60';
+            }
+
+            draw(ctx, camera) {
+                // Перевірка чи платформа видима на екрані
+                if (this.x + this.width < camera.x || this.x > camera.x + camera.width) {
+                    return;
+                }
+
+                // Основний колір платформи
+                ctx.fillStyle = this.color;
+                ctx.fillRect(
+                    camera.transformX(this.x),
+                    camera.transformY(this.y),
+                    this.width,
+                    this.height
+                );
+                
+                // Тінь платформи
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.fillRect(
+                    camera.transformX(this.x),
+                    camera.transformY(this.y + this.height - 5),
+                    this.width,
+                    5
+                );
+                
+                // Текстура платформи
+                ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+                for(let i = 0; i < this.width; i += 20) {
+                    ctx.beginPath();
+                    ctx.moveTo(camera.transformX(this.x + i), camera.transformY(this.y));
+                    ctx.lineTo(camera.transformX(this.x + i), camera.transformY(this.y + this.height));
+                    ctx.stroke();
+                }
+            }
+
+            checkCollision(player) {
+                if (player.velocityY > 0 && // Гравець падає
+                    player.x + player.width > this.x &&
+                    player.x < this.x + this.width &&
+                    player.y + player.height > this.y &&
+                    player.y + player.height < this.y + this.height + player.velocityY) {
+                    player.y = this.y - player.height;
+                    player.velocityY = 0;
+                    player.isJumping = false;
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        // Клас монети
+        class Coin {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.width = 20;
+                this.height = 20;
+                this.color = '#f1c40f';
+                this.collected = false;
+                this.angle = 0;
+            }
+
+            draw(ctx, camera) {
+                if (this.collected) return;
+                
+                // Перевірка чи монета видима на екрані
+                if (this.x + this.width < camera.x || this.x > camera.x + camera.width) {
+                    return;
+                }
+
+                // Основний колір монети
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(
+                    camera.transformX(this.x + this.width/2),
+                    camera.transformY(this.y + this.height/2),
+                    this.width/2,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+
+                // Блиск на монеті
+                ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                ctx.beginPath();
+                ctx.arc(
+                    camera.transformX(this.x + this.width/3),
+                    camera.transformY(this.y + this.height/3),
+                    this.width/6,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+
+                // Анімація обертання
+                this.angle += 0.05;
+                ctx.save();
+                ctx.translate(
+                    camera.transformX(this.x + this.width/2),
+                    camera.transformY(this.y + this.height/2)
+                );
+                ctx.rotate(this.angle);
+                ctx.strokeStyle = '#e67e22';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(-this.width/2, 0);
+                ctx.lineTo(this.width/2, 0);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            checkCollision(player) {
+                if (!this.collected &&
+                    player.x + player.width > this.x &&
+                    player.x < this.x + this.width &&
+                    player.y + player.height > this.y &&
+                    player.y < this.y + this.height) {
+                    this.collected = true;
+                    playSound(sounds.coin);
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        // Клас ворога
+        class Enemy {
+            constructor(x, y, platform) {
+                this.x = x;
+                this.y = y;
+                this.width = 40;
+                this.height = 40;
+                this.color = '#8e44ad';
+                this.velocityX = 2;
+                this.platform = platform;
+                this.direction = 1;
+            }
+
+            update() {
+                // Рух ворога по платформі
+                this.x += this.velocityX;
+
+                // Перевірка меж платформи
+                if (this.x <= this.platform.x) {
+                    this.x = this.platform.x;
+                    this.velocityX = Math.abs(this.velocityX);
+                    this.direction = 1;
+                } else if (this.x + this.width >= this.platform.x + this.platform.width) {
+                    this.x = this.platform.x + this.platform.width - this.width;
+                    this.velocityX = -Math.abs(this.velocityX);
+                    this.direction = -1;
+                }
+            }
+
+            draw(ctx, camera) {
+                // Перевірка чи ворог видимий на екрані
+                if (this.x + this.width < camera.x || this.x > camera.x + camera.width) {
+                    return;
+                }
+
+                // Тіло ворога
+                ctx.fillStyle = this.color;
+                ctx.fillRect(
+                    camera.transformX(this.x),
+                    camera.transformY(this.y),
+                    this.width,
+                    this.height
+                );
+
+                // Очі
+                ctx.fillStyle = 'white';
+                const eyeX = this.direction === 1 ? this.x + 30 : this.x + 10;
+                ctx.beginPath();
+                ctx.arc(
+                    camera.transformX(eyeX),
+                    camera.transformY(this.y + 15),
+                    5,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+
+                // Зіниці
+                ctx.fillStyle = 'red';
+                ctx.beginPath();
+                ctx.arc(
+                    camera.transformX(eyeX),
+                    camera.transformY(this.y + 15),
+                    2,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+
+                // Шипи
+                ctx.fillStyle = '#9b59b6';
+                for (let i = 0; i < 3; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(camera.transformX(this.x + i * 15), camera.transformY(this.y));
+                    ctx.lineTo(camera.transformX(this.x + i * 15 + 7), camera.transformY(this.y - 10));
+                    ctx.lineTo(camera.transformX(this.x + i * 15 + 14), camera.transformY(this.y));
+                    ctx.fill();
+                }
+
+                // Тінь
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.beginPath();
+                ctx.ellipse(
+                    camera.transformX(this.x + this.width/2),
+                    camera.transformY(this.y + this.height),
+                    this.width/2,
+                    10,
+                    0,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+            }
+
+            checkCollision(player) {
+                // Перевірка зіткнення з гравцем
+                if (player.x + player.width > this.x &&
+                    player.x < this.x + this.width &&
+                    player.y + player.height > this.y &&
+                    player.y < this.y + this.height) {
+                    
+                    // Якщо гравець падає на ворога зверху
+                    if (player.velocityY > 0 && player.y + player.height < this.y + this.height/2) {
+                        return 'kill';
+                    }
+                    // Якщо гравець торкається ворога збоку або знизу
+                    return 'damage';
+                }
+                return false;
+            }
+        }
+
+        // Клас персонажа
+        class Player {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.width = 50;
+                this.height = 50;
+                this.velocityX = 0;
+                this.velocityY = 0;
+                this.isJumping = false;
+                this.color = '#e74c3c';
+                this.coins = 0;
+                this.lives = 3; // Початкова кількість життів
+                this.direction = 1;
+                this.isInvulnerable = false; // Нова властивість для невразливості
+                this.invulnerableTimer = 0; // Таймер невразливості
+            }
+
+            update(platforms, enemies) {
+                // Застосування гравітації
+                this.velocityY += GRAVITY;
+                
+                // Оновлення позиції
+                this.x += this.velocityX;
+                this.y += this.velocityY;
+
+                // Застосування тертя
+                this.velocityX *= FRICTION;
+
+                // Перевірка колізії з платформами
+                let onPlatform = false;
+                for (let platform of platforms) {
+                    if (platform.checkCollision(this)) {
+                        onPlatform = true;
+                    }
+                }
+
+                // Перевірка колізії з землею
+                if (this.y + this.height > canvas.height) {
+                    this.y = canvas.height - this.height;
+                    this.velocityY = 0;
+                    this.isJumping = false;
+                }
+
+                // Оновлення таймера невразливості
+                if (this.isInvulnerable) {
+                    this.invulnerableTimer--;
+                    if (this.invulnerableTimer <= 0) {
+                        this.isInvulnerable = false;
+                    }
+                }
+
+                // Перевірка колізії з ворогами
+                if (!this.isInvulnerable) {
+                    for (let enemy of enemies) {
+                        const collision = enemy.checkCollision(this);
+                        if (collision === 'damage') {
+                            this.lives--;
+                            playSound(sounds.damage);
+                            // Відкидання гравця при отриманні пошкодження
+                            this.velocityY = -10;
+                            this.velocityX = this.direction * -5;
+                            // Активація невразливості
+                            this.isInvulnerable = true;
+                            this.invulnerableTimer = 60;
+                        } else if (collision === 'kill') {
+                            // Відскок при вбивстві ворога
+                            this.velocityY = -8;
+                        }
+                    }
+                }
+
+                // Оновлення індикатора
+                document.getElementById('gameInfo').textContent = `Час: ${gameTime} | Життя: ${this.lives} | Монети: ${this.coins}`;
+
+                // Перевірка Game Over
+                if (this.lives <= 0) {
+                    showMainMenu();
+                }
+            }
+
+            draw(ctx, camera) {
+                // Мерехтіння при невразливості
+                if (this.isInvulnerable && Math.floor(this.invulnerableTimer / 4) % 2 === 0) {
+                    return;
+                }
+
+                // Тіло персонажа
+                ctx.fillStyle = this.color;
+                ctx.fillRect(
+                    camera.transformX(this.x),
+                    camera.transformY(this.y),
+                    this.width,
+                    this.height
+                );
+
+                // Очі
+                ctx.fillStyle = 'white';
+                const eyeX = this.direction === 1 ? this.x + 35 : this.x + 15;
+                ctx.beginPath();
+                ctx.arc(
+                    camera.transformX(eyeX),
+                    camera.transformY(this.y + 15),
+                    5,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+
+                // Зіниці
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(
+                    camera.transformX(eyeX),
+                    camera.transformY(this.y + 15),
+                    2,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+
+                // Тінь
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.beginPath();
+                ctx.ellipse(
+                    camera.transformX(this.x + this.width/2),
+                    camera.transformY(this.y + this.height),
+                    this.width/2,
+                    10,
+                    0,
+                    0,
+                    Math.PI * 2
+                );
+                ctx.fill();
+            }
+
+            jump() {
+                if (!this.isJumping) {
+                    this.velocityY = JUMP_FORCE;
+                    this.isJumping = true;
+                    playSound(sounds.jump);
+                }
+            }
+
+            moveLeft() {
+                this.velocityX = -MOVE_SPEED;
+                this.direction = -1;
+            }
+
+            moveRight() {
+                this.velocityX = MOVE_SPEED;
+                this.direction = 1;
+            }
+        }
+
+        // Ініціалізація гри
+        const ctx = canvas.getContext('2d');
+        let player, platforms, coins, enemies, camera;
+        let gameStarted = false;
+        let gameTime = GAME_TIME;
+        let gameTimer;
+        let isSoundEnabled = true;
+
+        function startGame() {
+            player = new Player(100, WORLD_HEIGHT - 100);
+            camera = new Camera();
+            gameTime = GAME_TIME;
+            
+            // Створення платформ
+            platforms = [
+                // Земля
+                new Platform(0, WORLD_HEIGHT - 20, WORLD_WIDTH, 20),
+                // Платформи
+                new Platform(100, 450, 200, 20),
+                new Platform(400, 350, 200, 20),
+                new Platform(200, 250, 200, 20),
+                new Platform(500, 150, 200, 20),
+                // Додаткові платформи
+                new Platform(800, 400, 200, 20),
+                new Platform(1100, 300, 200, 20),
+                new Platform(1400, 200, 200, 20),
+                new Platform(1700, 300, 200, 20),
+                new Platform(2000, 400, 200, 20),
+                new Platform(2300, 300, 200, 20),
+                new Platform(2600, 200, 200, 20),
+                new Platform(2800, 300, 200, 20)
+            ];
+
+            // Створення монет
+            coins = [
+                new Coin(150, 400),
+                new Coin(450, 300),
+                new Coin(250, 200),
+                new Coin(550, 100),
+                new Coin(300, 150),
+                new Coin(850, 350),
+                new Coin(1150, 250),
+                new Coin(1450, 150),
+                new Coin(1750, 250),
+                new Coin(2050, 350),
+                new Coin(2350, 250),
+                new Coin(2650, 150),
+                new Coin(2850, 250)
+            ];
+
+            // Створення ворогів
+            enemies = [
+                new Enemy(150, 410, platforms[1]),
+                new Enemy(450, 310, platforms[2]),
+                new Enemy(250, 210, platforms[3]),
+                new Enemy(850, 360, platforms[5]),
+                new Enemy(1150, 260, platforms[6]),
+                new Enemy(1450, 160, platforms[7]),
+                new Enemy(1750, 260, platforms[8]),
+                new Enemy(2050, 360, platforms[9])
+            ];
+
+            gameStarted = true;
+            
+            // Запуск таймера
+            gameTimer = setInterval(() => {
+                gameTime--;
+                if (gameTime <= 0) {
+                    endGame();
+                }
+                updateGameInfo();
+            }, 1000);
+
+            // Запуск фонової музики
+            startBackgroundMusic();
+        }
+
+        function updateGameInfo() {
+            gameInfo.textContent = `Час: ${gameTime} | Життя: ${player.lives} | Монети: ${player.coins}`;
+        }
+
+        function endGame() {
+            gameStarted = false;
+            clearInterval(gameTimer);
+            finalCoins.textContent = player.coins;
+            gameOver.style.display = 'block';
+            sounds.background.pause();
+            playSound(sounds.gameOver);
+        }
+
+        function showMainMenu() {
+            gameStarted = false;
+            clearInterval(gameTimer);
+            mainMenu.style.display = 'block';
+            gameContainer.style.display = 'none';
+            gameInfo.style.display = 'none';
+            canvas.style.display = 'none';
+            gameOver.style.display = 'none';
+            sounds.background.pause();
+        }
+
+        // Обробка кнопки рестарту
+        restartButton.addEventListener('click', () => {
+            gameOver.style.display = 'none';
+            startGame();
+        });
+
+        // Додаємо кнопку для керування звуком
+        const soundButton = document.createElement('button');
+        soundButton.className = 'menuButton';
+        soundButton.style.position = 'absolute';
+        soundButton.style.top = '10px';
+        soundButton.style.right = '10px';
+        soundButton.textContent = '🔊';
+
+        soundButton.addEventListener('click', () => {
+            isSoundEnabled = !isSoundEnabled;
+            soundButton.textContent = isSoundEnabled ? '🔊' : '🔇';
+            
+            // Встановлення гучності для всіх звуків
+            Object.values(sounds).forEach(sound => {
+                sound.volume = isSoundEnabled ? sound.defaultVolume || 0.5 : 0;
+            });
+
+            // Якщо звук увімкнено і гра активна, запускаємо фонову музику
+            if (isSoundEnabled && gameStarted) {
+                startBackgroundMusic();
+            } else {
+                sounds.background.pause();
+            }
+        });
+
+        document.body.appendChild(soundButton);
+
+        // Зберігаємо початкову гучність для кожного звуку
+        Object.values(sounds).forEach(sound => {
+            sound.defaultVolume = sound.volume;
+        });
+
+        // Обробка клавіатури
+        const keys = {};
+        window.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+
+        // Головний цикл гри
+        function gameLoop() {
+            if (gameStarted) {
+                // Очищення канвасу
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Обробка вводу
+                if (keys['ArrowLeft'] || keys['a']) {
+                    player.moveLeft();
+                }
+                if (keys['ArrowRight'] || keys['d']) {
+                    player.moveRight();
+                }
+                if ((keys['ArrowUp'] || keys[' ']) && !player.isJumping) {
+                    player.jump();
+                }
+
+                // Оновлення камери
+                camera.update(player);
+
+                // Оновлення стану гри
+                player.update(platforms, enemies);
+
+                // Оновлення ворогів
+                enemies.forEach(enemy => enemy.update());
+
+                // Перевірка збору монет
+                for (let coin of coins) {
+                    if (coin.checkCollision(player)) {
+                        player.coins++;
+                        updateGameInfo();
+                    }
+                }
+
+                // Відображення
+                platforms.forEach(platform => platform.draw(ctx, camera));
+                coins.forEach(coin => coin.draw(ctx, camera));
+                enemies.forEach(enemy => enemy.draw(ctx, camera));
+                player.draw(ctx, camera);
+            }
+
+            // Продовження циклу
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Запуск гри
+        gameLoop();
+    </script>
+</body>
+</html> 
